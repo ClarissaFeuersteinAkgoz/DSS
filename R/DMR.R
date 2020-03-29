@@ -35,7 +35,7 @@ callDMR <- function(DMLresult, delta=0, p.threshold=1e-5,
     }
 
     ## bump finding
-    dmrs <- findBumps(DMLresult$chr, DMLresult$pos, scores,
+    dmrs <- findBumps(DMLresult$chr, DMLresult$pos, scores, DMLresult$stat,
                       cutoff=p.threshold, sep=5000, dis.merge=dis.merge,
                       pct.sig=pct.sig, minCG=minCG)
 
@@ -95,10 +95,10 @@ findRegion <- function(chr, pos, sep=1000) {
 }
 
 #######################################################
-## Bump finding, given score and cutoff.
+## Bump finding, given score and cutoff and stat.
 ## This is slow. Need to rewrite in C.
 #######################################################
-findBumps <- function(chr, pos, x, cutoff, sep=1000, dis.merge=200, pct.sig=0.3, minCG) {
+findBumps <- function(chr, pos, x, stat, cutoff, sep=1000, dis.merge=200, pct.sig=0.3, minCG) {
     flag <- as.numeric(x<cutoff)
     if(sum(flag) == 0) ## none
         return(NULL)
@@ -152,14 +152,36 @@ findBumps <- function(chr, pos, x, cutoff, sep=1000, dis.merge=200, pct.sig=0.3,
         ## this is not easy!!!
         ix.good <- NULL
         x.thisregion <- x[idx]
+        stat.thisregion <- stat[idx]
         for(ibump in 1:length(startidx)) {
             ii <- startidx[ibump]:endidx[ibump]
             pp <- x.thisregion[ii] < cutoff
-            if(mean(pp) > pct.sig)
+            ss <- stat.thisregion[ii]>0
+            statsigdir <- mean(ss[pp])
+            if(statsigdir>0.5){
+              if(mean(pp[ss==T]) > pct.sig)
                 ix.good <- c(ix.good, ibump)
+            }else{
+              if(mean(pp[ss==F]) > pct.sig)
+                ix.good <- c(ix.good, ibump)
+            }
+            #trimming of ends of the DMR (by removing significant CpGs in other direction (gain, loss))
+            if(statsigdir>0.5){
+              startidx[ibump]<- ii[which(pp[ss==T])[1]]
+              endidx[ibump]<-ii[which(pp[ss==T])[length(which(pp[ss==T]))]]
+            }else{
+              startidx[ibump]<- ii[which(pp[ss==F])[1]]
+              endidx[ibump]<-ii[which(pp[ss==F])[length(which(pp[ss==F]))]]
+            }
         }
-        if(length(ix.good) == 0) next
-        else {
+      
+        #after trimming remove DMRs with N of CpGs < minCG
+                idx.keep <- (endidx-startidx+1)>=minCG
+                
+                
+                if(length(endidx)==0) next
+               
+        if(length(ix.good) == 0) next else {
             startidx <- startidx[ix.good]
             endidx <- endidx[ix.good]
         }
