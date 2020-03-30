@@ -115,6 +115,7 @@ findBumps <- function(chr, pos, x, stat, cutoff, sep=1000, dis.merge=200, pct.si
     levels(result[,1]) <- unique(chr)
     result.idx <- 0
     for(i in 1:ncol(regions)) {
+      print(paste("region",i))
         idx <- regions[1,i]:regions[2,i]
         if(length(idx) <= minCG) next
         pos.region <- pos[idx]
@@ -147,45 +148,82 @@ findBumps <- function(chr, pos, x, stat, cutoff, sep=1000, dis.merge=200, pct.si
             startidx <- startidx[idx.start]
             endidx <- endidx[idx.end]
         }
+        
+        #remove DMRs with N of CpGs < minCG
+        idx.keep <- (endidx-startidx+1)>=minCG
+        startidx <- startidx[idx.keep]
+        endidx <- endidx[idx.keep]
+        
+        if(length(endidx)==0) next
 
         ## after merging, make sure certain % of CG sites being significant is enough.
         ## this is not easy!!!
         ix.good <- NULL
         x.thisregion <- x[idx]
         stat.thisregion <- stat[idx]
+        
+
         for(ibump in 1:length(startidx)) {
+          print(paste("ibump", ibump))
             ii <- startidx[ibump]:endidx[ibump]
             pp <- x.thisregion[ii] < cutoff
             ss <- stat.thisregion[ii]>0
             statsigdir <- mean(ss[pp])
+            
+            print(paste("dir",statsigdir))
+            #trimming of ends of the DMR (by removing significant CpGs in other direction (gain, loss))
+            if(statsigdir>0.5){
+              startidx[ibump]<- ii[which(pp==T & ss==T)[1]]
+              endidx[ibump]<-ii[which(pp==T & ss==T)[length(which(pp==T & ss==T))]]
+            }
+            if(statsigdir<0.5){
+              startidx[ibump]<- ii[which(pp==T & ss==F)[1]]
+              endidx[ibump]<-ii[which(pp==T & ss==F)[length(which(pp==T & ss==F))]]
+            }
+            if(statsigdir==0.5){
+              Statsum <- aggregate(stat.thisregion[ii][pp], by=list(Direction=ss[pp]), FUN=sum)
+              Statsum$Direction[Statsum$Direction==TRUE]<- "Gain"
+              Statsum$Direction[Statsum$Direction==FALSE]<- "Loss"
+              Statsum$x <- abs(Statsum$x)
+              if(Statsum$Direction[which.max(Statsum$x)]=="Gain"){
+                startidx[ibump]<- ii[which(pp==T & ss==T)[1]]
+                endidx[ibump]<-ii[which(pp==T & ss==T)[length(which(pp==T & ss==T))]]
+              }else{
+                startidx[ibump]<- ii[which(pp==T & ss==F)[1]]
+                endidx[ibump]<-ii[which(pp==T & ss==F)[length(which(pp==T & ss==F))]]
+              }
+              
+            }
+            #redo with trimmed DMR
+            ii <- startidx[ibump]:endidx[ibump]
+            pp <- x.thisregion[ii] < cutoff
+            ss <- stat.thisregion[ii]>0
+            statsigdir <- mean(ss[pp])            
+            
             if(statsigdir>0.5){
               if(mean(pp[ss==T]) > pct.sig)
                 ix.good <- c(ix.good, ibump)
-            }else{
+            }
+            if(statsigdir<0.5){
               if(mean(pp[ss==F]) > pct.sig)
                 ix.good <- c(ix.good, ibump)
             }
-            #trimming of ends of the DMR (by removing significant CpGs in other direction (gain, loss))
-            if(statsigdir>0.5){
-              startidx[ibump]<- ii[which(pp[ss==T])[1]]
-              endidx[ibump]<-ii[which(pp[ss==T])[length(which(pp[ss==T]))]]
-            }else{
-              startidx[ibump]<- ii[which(pp[ss==F])[1]]
-              endidx[ibump]<-ii[which(pp[ss==F])[length(which(pp[ss==F]))]]
-            }
+
         }
-      
-        #after trimming remove DMRs with N of CpGs < minCG
-                idx.keep <- (endidx-startidx+1)>=minCG
-                
-                
-                if(length(endidx)==0) next
+        
+        if(length(endidx)==0) next
                
         if(length(ix.good) == 0) next else {
             startidx <- startidx[ix.good]
             endidx <- endidx[ix.good]
         }
-
+        #after trimming remove DMRs with N of CpGs < minCG
+        idx.keep <- (endidx-startidx+1)>=minCG
+        startidx <- startidx[idx.keep]
+        endidx <- endidx[idx.keep]
+        
+        if(length(endidx)==0) next
+        
         nbump <- length(startidx)
         ll <- pos.region[endidx] - pos.region[startidx] + 1
         tmpn <- length(ll)
